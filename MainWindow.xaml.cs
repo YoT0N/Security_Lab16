@@ -36,6 +36,9 @@ namespace lab16
         private byte[] hashOfMessage;
         private string selectedFileName;
 
+        // Для відображення в hex-форматі
+        private const int BYTES_PER_LINE = 16;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -132,12 +135,131 @@ namespace lab16
                     selectedFileName = System.IO.Path.GetFileName(openFileDialog.FileName);
                     txtSelectedFile.Text = selectedFileName;
                     txtStatus.Text = $"Файл '{selectedFileName}' завантажено для підпису.";
+
+                    // Відображаємо оригінальний вміст файлу
+                    DisplayOriginalMessage();
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Помилка при зчитуванні файлу: {ex.Message}", "Помилка", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
+        }
+
+        private void DisplayOriginalMessage()
+        {
+            if (originalMessage == null || originalMessage.Length == 0)
+            {
+                txtOriginalMessage.Text = string.Empty;
+                return;
+            }
+
+            // Спроба відобразити як текст, якщо можливо
+            try
+            {
+                string textContent = Encoding.UTF8.GetString(originalMessage);
+
+                // Перевіряємо, чи файл текстовий
+                bool isText = true;
+                foreach (var b in originalMessage)
+                {
+                    if (b < 32 && b != 9 && b != 10 && b != 13)
+                    {
+                        isText = false;
+                        break;
+                    }
+                }
+
+                if (isText)
+                {
+                    txtOriginalMessage.Text = textContent;
+                }
+                else
+                {
+                    // Відображаємо дані у шістнадцятковому форматі
+                    txtOriginalMessage.Text = ByteArrayToHexString(originalMessage);
+                }
+            }
+            catch
+            {
+                // У випадку помилки декодування, відображаємо як шістнадцяткові значення
+                txtOriginalMessage.Text = ByteArrayToHexString(originalMessage);
+            }
+        }
+
+        private string ByteArrayToHexString(byte[] data)
+        {
+            StringBuilder result = new StringBuilder();
+
+            for (int i = 0; i < data.Length; i += BYTES_PER_LINE)
+            {
+                // Додаємо адресу (offset)
+                result.AppendFormat("{0:X8}: ", i);
+
+                // Додаємо шістнадцяткові значення
+                for (int j = 0; j < BYTES_PER_LINE; j++)
+                {
+                    if (i + j < data.Length)
+                        result.AppendFormat("{0:X2} ", data[i + j]);
+                    else
+                        result.Append("   ");
+                }
+
+                result.Append(" | ");
+
+                // Додаємо ASCII представлення
+                for (int j = 0; j < BYTES_PER_LINE; j++)
+                {
+                    if (i + j < data.Length)
+                    {
+                        char c = (char)data[i + j];
+                        if (c >= 32 && c <= 126) // Відображувані символи
+                            result.Append(c);
+                        else
+                            result.Append('.');
+                    }
+                }
+
+                result.AppendLine();
+            }
+
+            return result.ToString();
+        }
+
+        private string HashToHexString(byte[] hash)
+        {
+            if (hash == null)
+                return string.Empty;
+
+            StringBuilder sb = new StringBuilder();
+            foreach (byte b in hash)
+            {
+                sb.AppendFormat("{0:X2}", b);
+            }
+            return sb.ToString();
+        }
+
+        private void DisplayEncryptedMessage()
+        {
+            if (encryptedForSender == null || encryptedForSender.Length == 0)
+            {
+                txtEncryptedMessage.Text = string.Empty;
+                return;
+            }
+
+            txtEncryptedMessage.Text = ByteArrayToHexString(encryptedForSender);
+        }
+
+        private void DisplayMessageHash()
+        {
+            if (hashOfMessage == null || hashOfMessage.Length == 0)
+            {
+                txtMessageHash.Text = string.Empty;
+                return;
+            }
+
+            // Відображаємо хеш у шістнадцятковому форматі
+            txtMessageHash.Text = HashToHexString(hashOfMessage);
         }
 
         private void btnStep1_Click(object sender, RoutedEventArgs e)
@@ -177,13 +299,24 @@ namespace lab16
                 // Обчислюємо хеш-образ оригінального повідомлення
                 hashOfMessage = ComputeHash(originalMessage);
 
+                // Відображаємо зашифроване повідомлення та хеш
+                DisplayEncryptedMessage();
+                DisplayMessageHash();
+
                 // Відображаємо інформацію про Крок 1
                 txtStatus.Text = $"Крок 1 завершено:\n" +
                                  $"Сторона A (ID: {senderUser.Id}) зашифрувала повідомлення та обчислила хеш.\n" +
-                                 $"A -> ЦП: (IdA: {senderUser.Id}, IdB: {receiverUser.Id}, C (зашифроване повідомлення), H(M) (хеш))";
+                                 $"A -> ЦП: (IdA: {senderUser.Id}, IdB: {receiverUser.Id}, C (зашифроване повідомлення), H(M) (хеш))\n\n" +
+                                 $"Розмір повідомлення: {originalMessage.Length} байт\n" +
+                                 $"Розмір зашифрованого: {encryptedForSender.Length} байт\n" +
+                                 $"Розмір хешу (SHA-256): {hashOfMessage.Length} байт";
 
                 // Активуємо кнопку для Кроку 2
                 btnStep2.IsEnabled = true;
+
+                // Активуємо кнопки модифікації
+                btnModifyEncrypted.IsEnabled = true;
+                btnModifyHash.IsEnabled = true;
 
                 // Оновлюємо інтерфейс
                 UpdateEncryptionStatus("Крок 1", true);
@@ -216,6 +349,8 @@ namespace lab16
                 {
                     txtStatus.Text = $"Крок 2 завершено:\n" +
                                      $"ЦП розшифрував повідомлення ключем відправника {senderUser.Id}.\n" +
+                                     $"Обчислений хеш: {HashToHexString(computedHash)}\n" +
+                                     $"Отриманий хеш: {HashToHexString(hashOfMessage)}\n" +
                                      $"Хеш-образи співпадають. Документ не був модифікований.";
 
                     // Активуємо кнопку для Кроку 3
@@ -224,13 +359,17 @@ namespace lab16
                 }
                 else
                 {
-                    txtStatus.Text = "Крок 2: Помилка! Хеш-образи не співпадають. Документ був модифікований або пошкоджений.";
+                    txtStatus.Text = $"Крок 2: Помилка! Хеш-образи не співпадають.\n" +
+                                    $"Обчислений хеш: {HashToHexString(computedHash)}\n" +
+                                    $"Отриманий хеш: {HashToHexString(hashOfMessage)}\n" +
+                                    $"Документ був модифікований або пошкоджений.";
                     UpdateEncryptionStatus("Крок 2", false);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Помилка в Кроці 2: {ex.Message}", "Помилка", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Помилка в Кроці 2: {ex.Message}\n\nЦе може вказувати на підміну зашифрованого повідомлення.",
+                                "Помилка", MessageBoxButton.OK, MessageBoxImage.Error);
                 UpdateEncryptionStatus("Крок 2", false);
             }
         }
@@ -244,223 +383,4 @@ namespace lab16
                 byte[] receiverKey = receiverUser.SymmetricKey;
 
                 // ЦП зашифровує оригінальне повідомлення ключем отримувача
-                byte[] encryptedForReceiver = EncryptMessage(originalMessage, receiverKey);
-
-                txtStatus.Text = $"Крок 3 завершено:\n" +
-                                 $"ЦП зашифрував повідомлення ключем отримувача {receiverUser.Id}.\n" +
-                                 $"ЦП -> B: (IdA: {senderUser.Id}, C' (зашифроване повідомлення для B), H(M) (хеш))";
-
-                // Зберігаємо зашифроване повідомлення для отримувача
-                encryptedForSender = encryptedForReceiver;
-
-                // Активуємо кнопку для Кроку 4
-                btnStep4.IsEnabled = true;
-                UpdateEncryptionStatus("Крок 3", true);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Помилка в Кроці 3: {ex.Message}", "Помилка", MessageBoxButton.OK, MessageBoxImage.Error);
-                UpdateEncryptionStatus("Крок 3", false);
-            }
-        }
-
-        private void btnStep4_Click(object sender, RoutedEventArgs e)
-        {
-            // Крок 4: Сторона B розшифровує повідомлення та перевіряє хеш-образ
-            try
-            {
-                // Сторона B розшифровує повідомлення своїм ключем
-                byte[] decryptedByReceiver = DecryptMessage(encryptedForSender, receiverUser.SymmetricKey);
-
-                // Сторона B обчислює хеш-образ розшифрованого повідомлення
-                byte[] computedHashByReceiver = ComputeHash(decryptedByReceiver);
-
-                // Сторона B порівнює обчислений хеш із отриманим від ЦП
-                bool hashesMatch = CompareHashes(hashOfMessage, computedHashByReceiver);
-
-                if (hashesMatch)
-                {
-                    txtStatus.Text = $"Крок 4 завершено:\n" +
-                                     $"Сторона B (ID: {receiverUser.Id}) розшифрувала повідомлення своїм ключем.\n" +
-                                     $"Хеш-образи співпадають. Документ підписаний стороною A (ID: {senderUser.Id}).\n" +
-                                     $"ЕЦП підтверджено!";
-                    UpdateEncryptionStatus("Крок 4", true);
-                }
-                else
-                {
-                    txtStatus.Text = "Крок 4: Помилка! Хеш-образи не співпадають. ЕЦП не підтверджено.";
-                    UpdateEncryptionStatus("Крок 4", false);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Помилка в Кроці 4: {ex.Message}", "Помилка", MessageBoxButton.OK, MessageBoxImage.Error);
-                UpdateEncryptionStatus("Крок 4", false);
-            }
-        }
-
-        private void btnReset_Click(object sender, RoutedEventArgs e)
-        {
-            // Скидаємо всі дані та інтерфейс
-            originalMessage = null;
-            encryptedForSender = null;
-            hashOfMessage = null;
-            selectedFileName = null;
-
-            txtSelectedFile.Text = "";
-            txtStatus.Text = "Готовий до роботи. Спочатку потрібно зареєструвати користувачів.";
-
-            // Вимикаємо кнопки кроків
-            btnStep2.IsEnabled = false;
-            btnStep3.IsEnabled = false;
-            btnStep4.IsEnabled = false;
-
-            // Скидаємо статус шифрування
-            UpdateEncryptionStatus("Крок 1", null);
-            UpdateEncryptionStatus("Крок 2", null);
-            UpdateEncryptionStatus("Крок 3", null);
-            UpdateEncryptionStatus("Крок 4", null);
-        }
-
-        private void UpdateEncryptionStatus(string step, bool? success)
-        {
-            Brush statusBrush = null;
-            string statusText = "";
-
-            if (success == null)
-            {
-                statusText = "Очікується";
-                statusBrush = Brushes.Gray;
-            }
-            else if (success == true)
-            {
-                statusText = "Успішно";
-                statusBrush = Brushes.Green;
-            }
-            else
-            {
-                statusText = "Помилка";
-                statusBrush = Brushes.Red;
-            }
-
-            switch (step)
-            {
-                case "Крок 1":
-                    txtStep1Status.Text = statusText;
-                    txtStep1Status.Foreground = statusBrush;
-                    break;
-                case "Крок 2":
-                    txtStep2Status.Text = statusText;
-                    txtStep2Status.Foreground = statusBrush;
-                    break;
-                case "Крок 3":
-                    txtStep3Status.Text = statusText;
-                    txtStep3Status.Foreground = statusBrush;
-                    break;
-                case "Крок 4":
-                    txtStep4Status.Text = statusText;
-                    txtStep4Status.Foreground = statusBrush;
-                    break;
-            }
-        }
-
-        // Криптографічні функції
-
-        private byte[] EncryptMessage(byte[] data, byte[] key)
-        {
-            using (var aes = Aes.Create())
-            {
-                aes.Key = key;
-                aes.Mode = CipherMode.CBC;
-                aes.Padding = PaddingMode.PKCS7;
-
-                // Генеруємо IV (вектор ініціалізації)
-                aes.GenerateIV();
-                byte[] iv = aes.IV;
-
-                using (var encryptor = aes.CreateEncryptor())
-                using (var ms = new MemoryStream())
-                {
-                    // Записуємо IV у початок шифрованого повідомлення
-                    ms.Write(iv, 0, iv.Length);
-
-                    using (var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
-                    {
-                        cs.Write(data, 0, data.Length);
-                        cs.FlushFinalBlock();
-                    }
-
-                    return ms.ToArray();
-                }
-            }
-        }
-
-        private byte[] DecryptMessage(byte[] encryptedData, byte[] key)
-        {
-            using (var aes = Aes.Create())
-            {
-                aes.Key = key;
-                aes.Mode = CipherMode.CBC;
-                aes.Padding = PaddingMode.PKCS7;
-
-                // Отримуємо IV з початку зашифрованого повідомлення
-                byte[] iv = new byte[aes.BlockSize / 8];
-                Array.Copy(encryptedData, 0, iv, 0, iv.Length);
-                aes.IV = iv;
-
-                using (var decryptor = aes.CreateDecryptor())
-                using (var ms = new MemoryStream())
-                {
-                    using (var cs = new CryptoStream(
-                        new MemoryStream(encryptedData, iv.Length, encryptedData.Length - iv.Length),
-                        decryptor, CryptoStreamMode.Read))
-                    {
-                        byte[] buffer = new byte[1024];
-                        int bytesRead;
-                        while ((bytesRead = cs.Read(buffer, 0, buffer.Length)) > 0)
-                        {
-                            ms.Write(buffer, 0, bytesRead);
-                        }
-                    }
-
-                    return ms.ToArray();
-                }
-            }
-        }
-
-        private byte[] ComputeHash(byte[] data)
-        {
-            using (var sha256 = SHA256.Create())
-            {
-                return sha256.ComputeHash(data);
-            }
-        }
-
-        private bool CompareHashes(byte[] hash1, byte[] hash2)
-        {
-            if (hash1.Length != hash2.Length)
-                return false;
-
-            for (int i = 0; i < hash1.Length; i++)
-            {
-                if (hash1[i] != hash2[i])
-                    return false;
-            }
-
-            return true;
-        }
-    }
-
-    // Клас для зберігання інформації про користувача
-    public class User
-    {
-        public string Id { get; set; }
-        public string Name { get; set; }
-        public byte[] SymmetricKey { get; set; }
-
-        public override string ToString()
-        {
-            return $"{Name} (ID: {Id})";
-        }
-    }
-}
+                byte[] encryptedFor
